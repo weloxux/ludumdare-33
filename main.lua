@@ -16,12 +16,12 @@
 
 require "lib/lovedebug" -- For live debugging
 local Gamestate = require "lib/HUMP/gamestate" -- For game states
-local anim8 = require 'lib/anim8'
-local boundingbox = require "lib/boundingbox"
+local anim8 = require 'lib/anim8' -- For animations
 
 -- Define game states
 local menu = {}
 local level1 = {}
+local inter = {}
 local gameover = {}
 
 local function Proxy(f) -- Proxy function for sprites and audio
@@ -32,16 +32,31 @@ local function Proxy(f) -- Proxy function for sprites and audio
     end})
 end
 
+function round(num, idp)
+    return tonumber(string.format("%." .. (idp or 0) .. "f", num))
+end
+
+local function CheckCollision(x1,y1,w1,h1, x2,y2,w2,h2)
+    return x1 < x2+w2 and
+            x2 < x1+w1 and
+            y1 < y2+h2 and
+            y2 < y1+h1
+end
+
 Tile = Proxy( function(k) return love.graphics.newImage("img/tile/"..k..".png") end)
 Anim = Proxy( function(k) return love.graphics.newImage("img/anim/"..k..".png") end)
 Bagr = Proxy( function(k) return love.graphics.newImage("img/bg/"..k..".png") end)
 
-dungeon = {}
 sorts = {"wall", "space"}
 seed = os.time()
 
+function q() -- For debug mode
+    love.event.quit()
+end
+
 local function caveinit()
-    local tiles = {Tile.wall1, Tile.wall2, Tile.wall3}
+    local tiles = {Tile.wall1, Tile.wall2, Tile.wall3, Tile.wall4}
+    dungeon = {}
     for i = 1, (600 / tilesize) do
         local newrow = {}
 
@@ -116,9 +131,9 @@ local function cellulate(times) -- the cellulate function running multiple times
     local cont = true
     while cont == true do
         randomise()
-        a = dungeon[math.random(#dungeon)][math.random(912/tilesize)]
-        if a.sort == "space" then
-            a.item = "hatch"
+        hatchloc = dungeon[math.random(#dungeon)][math.random(888/tilesize)]
+        if hatchloc.sort == "space" then
+            hatchloc.item = "hatch"
             cont = false
         end
     end
@@ -136,27 +151,33 @@ local function drawcave() -- Draw caves from the grid
     end
 end
 
-local function spawn(sort, x, y)
+function spawn(sort, x, y)
     if monster == "happya" then
         newmonster = {sort = "happya", x = x, y = y}
         table.insert(happyas, newmonster)
     end
 end
 
+function checkwallcollision()
+    gridloc = {x = round((player.x + (tilesize / 2)) / tilesize, 0), y = round((player.y + (tilesize / 2)) / tilesize, 0)}
+
+    if dungeon[gridloc.y][gridloc.x].sort == "wall" or dungeon[gridloc.y + 1][gridloc.x + 1].sort == "wall" then
+        return true
+    else
+        return false
+    end
+end
+
 local function moveplayer(dt)
+    local lastloc = {x = player.x, y = player.y}
+
     -- Check if the player wants to go left or right, and if yes, give them the velocity to do so
     if love.keyboard.isDown("left") and player.xspeed > mmaxspeed then
         player.xspeed = player.xspeed - (speedmod)
     elseif love.keyboard.isDown("right") and player.xspeed < maxspeed then
         player.xspeed = player.xspeed + (speedmod)
     else
-        if player.xspeed < 1 and player.xspeed > -1 then
-            player.xspeed = 0
-        elseif player.xspeed > 0 then
-            player.xspeed = player.xspeed - (speedmod * 2)
-        elseif player.xspeed < 0 then
-            player.xspeed = player.xspeed + (speedmod * 2)
-        end
+        player.xspeed = 0
     end
 
     -- Check up and down
@@ -165,33 +186,38 @@ local function moveplayer(dt)
     elseif love.keyboard.isDown("down") and player.yspeed < maxspeed then
         player.yspeed = player.yspeed + (speedmod)
     else
-        if player.yspeed < 1 and player.yspeed > -1 then
-            player.yspeed = 0
-        elseif player.yspeed > 0 then
-            player.yspeed = player.yspeed - (speedmod * 2)
-        elseif player.yspeed < 0 then
-            player.yspeed = player.yspeed + (speedmod * 2)
-        end
+        player.yspeed = 0
     end
 
     -- Do the actual moving
     player.x = player.x + player.xspeed
     player.y = player.y + player.yspeed
+
+    -- Move back in case of collision
+    if checkwallcollision() then
+        player.x = lastloc.x
+        player.y = lastloc.y
+    end
+
 end
 
 function love.load()
     -- Constants
     tilesize = 24
-    speedmod = 2
-    maxspeed = 10
+    speedmod = 1
+    maxspeed = 4
     mmaxspeed = -1 * maxspeed
+
+    -- Fonts
+    justice = love.graphics.newFont("font/justice.ttf", 30)
+    love.graphics.setFont(justice)
 
     -- Globals
     depth = 1
 
     -- Animations
     local g = anim8.newGrid(tilesize, tilesize, Anim.char:getWidth(), Anim.char:getHeight())
-    walkanim = anim8.newAnimation(g('1-4',1), 0.1)
+    walkanim = anim8.newAnimation(g('1-3',1), 0.2)
     local g = anim8.newGrid(tilesize, tilesize, Anim.happya:getWidth(), Anim.happya:getHeight())
     happyanim = anim8.newAnimation(g('1-6',1), {0.5, 0.1, 0.1, 0.2, 0.1, 0.1})
 
@@ -200,11 +226,12 @@ function love.load()
     Gamestate.switch(menu)
 end
 
+
 function menu:enter(previous, ...)
     Gamestate.switch(level1)
 end
 
-function level1:init()
+function level1:enter()
     -- Prepare a map
     caveinit()
     cellulate(10)
@@ -222,32 +249,52 @@ function level1:init()
     local cont = true
     while cont == true do
         randomise()
-        a = dungeon[math.random(#dungeon)][math.random(912/tilesize)]
+        a = dungeon[math.random(#dungeon)][math.random(888/tilesize)]
         if a.sort == "space" then
             spawnpoint = {x = a.x, y = a.y}
             cont = false
         end
     end
 
+    -- Prepare spawn timers
+    t_happya = 20
+
     -- Entities
     happyas = {} -- Format: {sort = str, x = int, y = int}
-    player = {xspeed = 0, yspeed = 0, x = spawnpoint.x, y = spawnpoint.y} -- TODO: Fix spawn point
+    player = {xspeed = 0, yspeed = 0, x = spawnpoint.x, y = spawnpoint.y}
 end
 
 function level1:update(dt)
     love.window.setTitle("LD33 (FPS:" .. love.timer.getFPS() .. ")") 
 
+    -- Check if we reached the hatch
+    if CheckCollision(player.x, player.y, 24, 24, hatchloc.x, hatchloc.y + 3, 24, 21) then -- Magic: hatch misses one row of pixels, or three real pixels, at the top
+        hatchreached = true
+        depth = depth + 1
+        Gamestate.switch(inter)
+    end
+
+    -- Player movement
     moveplayer(dt)
     player.x = player.x + player.xspeed
     player.y = player.y + player.yspeed
 
-    function love.keyreleased(key) -- Debug code
-        if key == "q" then
-            spawn("happya", 0, 0)
-        end
+    -- Manually spawn happyas (debug)
+    if love.keyboard.isDown("q") then
+        spawn("happya", 0, 0)
     end
 
-    walkanim:update(dt)
+    -- Update the walkanimation
+--    walkanim:update(dt)
+
+    --Check for ready timers
+    if t_happya <= 0 then
+        t_happya = 20
+        spawn("happya", hatchloc.x, hatchloc.y)
+    end
+
+    -- Adjust timers
+    t_happya = t_happya - dt
 end
 
 function level1:draw()
@@ -264,4 +311,22 @@ function level1:draw()
     for k,v in pairs(happyas) do 
         happyanim:draw(Anim.happya, v.x, v.y)
     end
+end
+
+function inter:enter()
+    hatchreached = false
+    remaining = 3 -- Make sure we wait a bit before going to the next level
+end
+
+function inter:update(dt)
+    remaining = remaining - dt -- Count down....
+
+    if remaining <= 0 then -- And next level
+        Gamestate.switch(level1)
+    end
+end
+
+function inter:draw()
+    love.graphics.draw(bg, 0, 0)
+    love.graphics.printf("Cleared floor " .. tostring(depth - 1) .. "!", 0, 10, 900, "center") 
 end
