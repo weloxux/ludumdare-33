@@ -36,7 +36,7 @@ function round(num, idp)
     return tonumber(string.format("%." .. (idp or 0) .. "f", num))
 end
 
-local function CheckCollision(x1,y1,w1,h1, x2,y2,w2,h2)
+function checkcollision(x1,y1,w1,h1, x2,y2,w2,h2)
     return x1 < x2+w2 and
             x2 < x1+w1 and
             y1 < y2+h2 and
@@ -46,6 +46,7 @@ end
 Tile = Proxy( function(k) return love.graphics.newImage("img/tile/"..k..".png") end)
 Anim = Proxy( function(k) return love.graphics.newImage("img/anim/"..k..".png") end)
 Bagr = Proxy( function(k) return love.graphics.newImage("img/bg/"..k..".png") end)
+Snd = Proxy(function(k) return love.audio.newSource(love.sound.newSoundData("snd/"..k..".wav")) end)
 
 sorts = {"wall", "space"}
 seed = os.time()
@@ -152,20 +153,34 @@ local function drawcave() -- Draw caves from the grid
 end
 
 function spawn(sort, x, y)
-    if monster == "happya" then
+    if sort == "happya" then
         newmonster = {sort = "happya", x = x, y = y}
         table.insert(happyas, newmonster)
+        debugvar2 = true
     end
+    debugvar1 = true
 end
 
 function checkwallcollision()
-    gridloc = {x = round((player.x + (tilesize / 2)) / tilesize, 0), y = round((player.y + (tilesize / 2)) / tilesize, 0)}
+    gridloc = {x = round((player.x + (tilesize / 2)) / tilesize, 0), y = round((player.y + (tilesize / 2)) / tilesize, 0)} -- Magic!
 
-    if dungeon[gridloc.y][gridloc.x].sort == "wall" or dungeon[gridloc.y + 1][gridloc.x + 1].sort == "wall" then
+    if (checkcollision(dungeon[gridloc.y][gridloc.x].x, dungeon[gridloc.y][gridloc.x].y, tilesize, tilesize, player.x, player.y, 21, 6) and dungeon[gridloc.y][gridloc.x].sort == "wall") or
+        (checkcollision(dungeon[gridloc.y + 1][gridloc.x].x, dungeon[gridloc.y + 1][gridloc.x].y, tilesize, tilesize, player.x, player.y, 21, 6) and dungeon[gridloc.y + 1][gridloc.x].sort == "wall") or
+        (checkcollision(dungeon[gridloc.y][gridloc.x + 1].x, dungeon[gridloc.y][gridloc.x + 1].y, tilesize, tilesize, player.x, player.y, 21, 6) and dungeon[gridloc.y][gridloc.x + 1].sort == "wall") or
+        (checkcollision(dungeon[gridloc.y + 1][gridloc.x + 1].x, dungeon[gridloc.y + 1][gridloc.x + 1].y, tilesize, tilesize, player.x, player.y, 21, 6) and dungeon[gridloc.y + 1][gridloc.x + 1].sort == "wall") then
         return true
     else
         return false
     end
+
+--    if (dungeon[gridloc.y][gridloc.x].sort == "wall" and player.x % tilesize ~= 0) or 
+--        (dungeon[gridloc.y + 1][gridloc.x + 1].sort == "wall" and player.y % tilesize ~= 0) or
+--        (dungeon[gridloc.y][gridloc.x + 1].sort == "wall" and player.y % tilesize ~= 0) or
+--        (dungeon[gridloc.y + 1][gridloc.x].sort == "wall" and player.x % tilesize ~= 0) then
+--        return true
+--    else
+--        return false
+--    end
 end
 
 local function moveplayer(dt)
@@ -198,7 +213,6 @@ local function moveplayer(dt)
         player.x = lastloc.x
         player.y = lastloc.y
     end
-
 end
 
 function love.load()
@@ -216,10 +230,10 @@ function love.load()
     depth = 1
 
     -- Animations
-    local g = anim8.newGrid(tilesize, tilesize, Anim.char:getWidth(), Anim.char:getHeight())
+    local g = anim8.newGrid(21, 6, Anim.newchar:getWidth(), Anim.newchar:getHeight())
     walkanim = anim8.newAnimation(g('1-3',1), 0.2)
     local g = anim8.newGrid(tilesize, tilesize, Anim.happya:getWidth(), Anim.happya:getHeight())
-    happyanim = anim8.newAnimation(g('1-6',1), {0.5, 0.1, 0.1, 0.2, 0.1, 0.1})
+    happyanim = anim8.newAnimation(g('1-6',1), {0.5, 0.1, 0.1, 0.1, 0.1, 0.1})
 
     -- Switch to menu gamestate
     Gamestate.registerEvents()
@@ -228,7 +242,29 @@ end
 
 
 function menu:enter(previous, ...)
-    Gamestate.switch(level1)
+    flashtimer = 0.4
+    flashon = true
+end
+
+function menu:update(dt)
+    flashtimer = flashtimer -dt
+
+    if flashtimer <= 0 then
+        if flashon == true then flashon = false else flashon = true end
+        flashtimer = 0.4
+    end
+
+    if love.keyboard.isDown(" ") then
+        love.audio.play(Snd.Select)
+        Gamestate.switch(level1)
+    end
+end
+
+function menu:draw()
+    love.graphics.draw(Bagr.menu, 0, 0) -- Background
+    if flashon == true then
+        love.graphics.draw(Bagr.begin, 0, 0) -- "Press start" text
+    end
 end
 
 function level1:enter()
@@ -257,7 +293,7 @@ function level1:enter()
     end
 
     -- Prepare spawn timers
-    t_happya = 20
+    t_happya = 0
 
     -- Entities
     happyas = {} -- Format: {sort = str, x = int, y = int}
@@ -265,10 +301,10 @@ function level1:enter()
 end
 
 function level1:update(dt)
-    love.window.setTitle("LD33 (FPS:" .. love.timer.getFPS() .. ")") 
+    love.window.setTitle("Caffiend dev build (FPS:" .. love.timer.getFPS() .. ")") 
 
     -- Check if we reached the hatch
-    if CheckCollision(player.x, player.y, 24, 24, hatchloc.x, hatchloc.y + 3, 24, 21) then -- Magic: hatch misses one row of pixels, or three real pixels, at the top
+    if checkcollision(player.x, player.y, 21, 6, hatchloc.x, hatchloc.y + 3, 24, 21) then -- Magic: hatch misses one row of pixels, or three real pixels, at the top
         hatchreached = true
         depth = depth + 1
         Gamestate.switch(inter)
@@ -276,21 +312,20 @@ function level1:update(dt)
 
     -- Player movement
     moveplayer(dt)
-    player.x = player.x + player.xspeed
-    player.y = player.y + player.yspeed
 
     -- Manually spawn happyas (debug)
     if love.keyboard.isDown("q") then
         spawn("happya", 0, 0)
     end
 
-    -- Update the walkanimation
+    -- Update the animations
 --    walkanim:update(dt)
+    happyanim:update(dt)
 
     --Check for ready timers
     if t_happya <= 0 then
-        t_happya = 20
         spawn("happya", hatchloc.x, hatchloc.y)
+        t_happya = 20
     end
 
     -- Adjust timers
@@ -305,7 +340,7 @@ function level1:draw()
     drawcave()
 
     -- Run the walk animation for the player
-    walkanim:draw(Anim.char, player.x, player.y)
+    walkanim:draw(Anim.newchar, player.x, player.y)
 
     -- Draw Happyas
     for k,v in pairs(happyas) do 
