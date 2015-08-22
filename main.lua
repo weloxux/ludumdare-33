@@ -40,14 +40,13 @@ dungeon = {}
 sorts = {"wall", "space"}
 seed = os.time()
 
-local function init()
+local function caveinit()
     local tiles = {Tile.wall1, Tile.wall2, Tile.wall3}
     for i = 1, (600 / tilesize) do
         local newrow = {}
 
         for n = 1, (912 / tilesize) do
-            seed = seed + 11
-            math.randomseed(seed)
+            randomise()
             local newtile = {sort = sorts[math.random(#sorts)], tile = tiles[math.random(#tiles)]}
             table.insert(newrow, newtile)
         end
@@ -66,11 +65,17 @@ function check(pos)
     end
 end
 
+function randomise()
+    seed = seed + 11
+    math.randomseed(seed)
+end
+
 local function cellulate(times) -- the cellulate function running multiple times gives smoother maps
     for i = 1, times do
         for k1,v1 in pairs(dungeon) do
             for k2,v2 in pairs(v1) do
                 count = 0
+                hatched = false
 
                 count = count + check(v1[k2 - 1]) -- left
                 count = count + check(v1[k2 + 1]) -- right
@@ -106,53 +111,91 @@ local function cellulate(times) -- the cellulate function running multiple times
             end
         end
     end
+--    dungeon[math.random(#dungeon)][math.random(912/tilesize)].item = "hatch"
+    
+    local cont = true
+    while cont == true do
+        randomise()
+        a = dungeon[math.random(#dungeon)][math.random(912/tilesize)]
+        if a.sort == "space" then
+            a.item = "hatch"
+            cont = false
+        end
+    end
 end
 
-local function drawcave()
+local function drawcave() -- Draw caves from the grid
     for k1,v1 in pairs(dungeon) do
         for k2,v2 in pairs(v1) do
             if v2.sort == "wall" then
                 love.graphics.draw(v2.tile, v2.x, v2.y)
+            elseif v2.item == "hatch" then
+                love.graphics.draw(Tile.hatch, v2.x, v2.y)
             end
         end
     end
 end
 
-local function moveplayer(dt)
-    if love.keyboard.isDown("left") and player.xspeed > mmaxspeed then
-        player.xspeed = player.xspeed - (speedmod * dt)
-    elseif love.keyboard.isDown("right") and player.xspeed < maxspeed then
-        player.xspeed = player.xspeed + (speedmod * dt)
-    else
-        if player.xspeed > 0 then
-            player.xspeed = player.xspeed - (speedmod * 2 * dt)
-        elseif player.xspeed < 0 then
-            player.xspeed = player.xspeed + (speedmod * 2 * dt)
-        end
-    end
-
-    if love.keyboard.isDown("up") and player.yspeed > mmaxspeed then
-        player.yspeed = player.yspeed - (speedmod * dt)
-    elseif love.keyboard.isDown("down") and player.yspeed < maxspeed then
-        player.yspeed = player.yspeed + (speedmod * dt)
-    else
-        if player.yspeed > 0 then
-            player.yspeed = player.yspeed - (speedmod * 2 * dt)
-        elseif player.yspeed < 0 then
-            player.yspeed = player.yspeed + (speedmod * 2 * dt)
-        end
+local function spawn(sort, x, y)
+    if monster == "happya" then
+        newmonster = {sort = "happya", x = x, y = y}
+        table.insert(happyas, newmonster)
     end
 end
 
-function love.load()
-    tilesize = 24
+local function moveplayer(dt)
+    -- Check if the player wants to go left or right, and if yes, give them the velocity to do so
+    if love.keyboard.isDown("left") and player.xspeed > mmaxspeed then
+        player.xspeed = player.xspeed - (speedmod)
+    elseif love.keyboard.isDown("right") and player.xspeed < maxspeed then
+        player.xspeed = player.xspeed + (speedmod)
+    else
+        if player.xspeed < 1 and player.xspeed > -1 then
+            player.xspeed = 0
+        elseif player.xspeed > 0 then
+            player.xspeed = player.xspeed - (speedmod * 2)
+        elseif player.xspeed < 0 then
+            player.xspeed = player.xspeed + (speedmod * 2)
+        end
+    end
 
+    -- Check up and down
+    if love.keyboard.isDown("up") and player.yspeed > mmaxspeed then
+        player.yspeed = player.yspeed - (speedmod)
+    elseif love.keyboard.isDown("down") and player.yspeed < maxspeed then
+        player.yspeed = player.yspeed + (speedmod)
+    else
+        if player.yspeed < 1 and player.yspeed > -1 then
+            player.yspeed = 0
+        elseif player.yspeed > 0 then
+            player.yspeed = player.yspeed - (speedmod * 2)
+        elseif player.yspeed < 0 then
+            player.yspeed = player.yspeed + (speedmod * 2)
+        end
+    end
+
+    -- Do the actual moving
+    player.x = player.x + player.xspeed
+    player.y = player.y + player.yspeed
+end
+
+function love.load()
+    -- Constants
+    tilesize = 24
+    speedmod = 2
+    maxspeed = 10
+    mmaxspeed = -1 * maxspeed
+
+    -- Globals
+    depth = 1
+
+    -- Animations
     local g = anim8.newGrid(tilesize, tilesize, Anim.char:getWidth(), Anim.char:getHeight())
     walkanim = anim8.newAnimation(g('1-4',1), 0.1)
     local g = anim8.newGrid(tilesize, tilesize, Anim.happya:getWidth(), Anim.happya:getHeight())
     happyanim = anim8.newAnimation(g('1-6',1), {0.5, 0.1, 0.1, 0.2, 0.1, 0.1})
 
-
+    -- Switch to menu gamestate
     Gamestate.registerEvents()
     Gamestate.switch(menu)
 end
@@ -162,14 +205,33 @@ function menu:enter(previous, ...)
 end
 
 function level1:init()
-    init()
+    -- Prepare a map
+    caveinit()
     cellulate(10)
 
-    speedmod = 20
-    maxspeed = 10
-    mmaxspeed = -1 * maxspeed
+    -- Decide background based on depth
+    if depth == 1 then
+        bg = Bagr.stone
+    elseif depth < 4 then
+        bg = Bagr.stone
+    else
+        bg = Bagr.darkstone
+    end
 
-    player = {x = 0, y = 0, xspeed = 0, yspeed = 0} -- TODO: Fix spawn point
+    -- Decide player spawn location
+    local cont = true
+    while cont == true do
+        randomise()
+        a = dungeon[math.random(#dungeon)][math.random(912/tilesize)]
+        if a.sort == "space" then
+            spawnpoint = {x = a.x, y = a.y}
+            cont = false
+        end
+    end
+
+    -- Entities
+    happyas = {} -- Format: {sort = str, x = int, y = int}
+    player = {xspeed = 0, yspeed = 0, x = spawnpoint.x, y = spawnpoint.y} -- TODO: Fix spawn point
 end
 
 function level1:update(dt)
@@ -179,13 +241,27 @@ function level1:update(dt)
     player.x = player.x + player.xspeed
     player.y = player.y + player.yspeed
 
+    function love.keyreleased(key) -- Debug code
+        if key == "q" then
+            spawn("happya", 0, 0)
+        end
+    end
+
     walkanim:update(dt)
 end
 
 function level1:draw()
-    love.graphics.draw(Bagr.stone, 0, 0)
+    -- Draw the current background
+    love.graphics.draw(bg, 0, 0)
 
+    -- Draw the cave
     drawcave()
 
+    -- Run the walk animation for the player
     walkanim:draw(Anim.char, player.x, player.y)
+
+    -- Draw Happyas
+    for k,v in pairs(happyas) do 
+        happyanim:draw(Anim.happya, v.x, v.y)
+    end
 end
